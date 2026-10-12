@@ -1,0 +1,45 @@
+name: payment-processing-tests
+
+services:
+  postgres-test:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: payments_test
+      POSTGRES_USER: payments
+      POSTGRES_PASSWORD: test-password
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payments -d payments_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq-test:
+    image: rabbitmq:4.1-management
+    hostname: rabbitmq-test
+    environment:
+      RABBITMQ_DEFAULT_USER: payments
+      RABBITMQ_DEFAULT_PASS: test-password
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  tests:
+    build:
+      context: .
+      target: test
+    environment:
+      API_KEY: integration-tests-api-key
+      DATABASE_URL: postgresql+asyncpg://payments:test-password@postgres-test:5432/payments_test
+      RABBITMQ_URL: amqp://payments:test-password@rabbitmq-test:5672/
+      TEST_DATABASE_URL: postgresql+asyncpg://payments:test-password@postgres-test:5432/payments_test
+      TEST_RABBITMQ_URL: amqp://payments:test-password@rabbitmq-test:5672/
+    command: ["sh", "-c", "alembic upgrade head && alembic check && pytest --cov --cov-report=term-missing"]
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      rabbitmq-test:
+        condition: service_healthy
